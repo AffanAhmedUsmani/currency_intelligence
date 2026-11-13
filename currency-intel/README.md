@@ -396,3 +396,54 @@ are generated from the transparent weighted-component formula in §4.6, never a 
 buy" rule. Forecasts always ship with a confidence level and an uncertainty range, never a bare
 point prediction. Rate type (`reference` vs `indicative`) and data provider are surfaced on every
 response that includes a rate.
+
+---
+
+## 8. Deploying to Vercel + Render
+
+**Why two platforms, not just Vercel:** Vercel is excellent for the frontend (static Vite build,
+free, trivial setup) but its serverless functions are the wrong fit for the backend specifically —
+they're stateless per-invocation (our SQLite historical-rate cache needs a filesystem that persists
+across requests, not one that resets every call) and time-limited (a cold `/api/compare` across 20
+currencies or the weekly-rotation backtest can take 15-20s, over Vercel Hobby's default limit). So:
+**frontend on Vercel, backend on Render** (or Railway/Fly — anything that runs a long-lived
+container). This is the standard split for this shape of app, not a workaround.
+
+### 8.1 Backend → Render
+
+1. Push this repo to GitHub (already done if you're reading this from a clone with a remote).
+2. Go to [Render's Blueprints page](https://dashboard.render.com/blueprints) → **New Blueprint
+   Instance** → connect this repo. Render reads `render.yaml` at the repo root automatically and
+   provisions a free Docker web service from `currency-intel/backend`'s existing `Dockerfile` — no
+   manual service configuration needed.
+3. Wait for the first deploy to finish, then copy the service's URL (something like
+   `https://currency-intelligence-api.onrender.com`). Confirm it's alive:
+   `curl https://<your-service>.onrender.com/api/health`.
+4. **Free-tier caveat:** Render's free web services spin down after ~15 minutes of inactivity. The
+   next request after that wakes it back up but takes 30-60s. Fine for a personal/demo deployment;
+   upgrade to a paid instance (or ping it periodically) if that cold start is a problem for you.
+
+### 8.2 Frontend → Vercel
+
+1. [Import the repo](https://vercel.com/new) into Vercel. Since this is a monorepo, set **Root
+   Directory** to `currency-intel/frontend` on the import screen (Vercel auto-detects Vite from
+   there via `vercel.json`/`package.json` — no other build settings needed).
+2. Before the first deploy (or after, then redeploy), add an environment variable:
+   **`VITE_API_BASE_URL`** = your Render URL from §8.1 (e.g. `https://currency-intelligence-api.onrender.com`,
+   no trailing slash). This is a *build-time* Vite variable (see `src/api/client.ts`), so changing
+   it always requires a redeploy, not just a restart.
+3. Deploy. You'll get a `https://<project>.vercel.app` URL.
+
+### 8.3 Close the loop: CORS
+
+The backend only accepts browser requests from origins listed in `CI_CORS_ORIGINS`. Once you have
+your real Vercel URL from §8.2, go back to the Render service → **Environment** → update
+`CI_CORS_ORIGINS` to `["https://<your-project>.vercel.app"]` (a JSON array, as a string) and let it
+redeploy. Until you do this, the deployed frontend will load but every API call will fail with a
+CORS error in the browser console — if that happens, this step is almost certainly why.
+
+### 8.4 Updating after this point
+
+Both platforms auto-deploy on push to your default branch (Render via the Blueprint, Vercel via
+its GitHub integration) — `git push` is the whole update workflow afterward. No action needed for
+most changes; re-run §8.3 only if the Vercel URL itself ever changes (e.g. a new project).

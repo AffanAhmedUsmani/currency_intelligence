@@ -1,0 +1,21 @@
+# Render "Blueprint" — connect this repo at https://dashboard.render.com/blueprints
+# and Render will read this file automatically to provision the backend API.
+# See currency-intel/README.md "Deployment" section for the full walkthrough,
+# including the Vercel (frontend) side and the CORS env var you must update
+# after your Vercel URL exists.
+
+services:
+  - type: web
+    name: currency-intelligence-api
+    runtime: docker
+    rootDir: currency-intel/backend
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      # Update this to your actual Vercel URL once you have it (Render dashboard ->
+      # this service -> Environment), e.g. '["https://your-app.vercel.app"]'. A
+      # second origin (localhost) is kept so local frontend dev can still hit this
+      # deployed backend if you ever point VITE_API_BASE_URL at it.
+      - key: CI_CORS_ORIGINS
+        value: '["http://localhost:5173","http://127.0.0.1:5173"]'
